@@ -1,0 +1,19 @@
+#!/usr/bin/python
+
+import sys, dbus;
+from pprint import pprint;
+
+bus = dbus.SessionBus()
+proxy = bus.get_object('org.tizen.SSO',
+                       '/org/tizen/SSO/SignonUi')
+sso = dbus.Interface(proxy, dbus_interface='org.tizen.SSO.singlesignonui')
+
+params = dbus.Dictionary({}, signature='sv')
+
+# do some guesswork on the params ...
+
+if (len(sys.argv) < 2):
+  print "Usage: ./cancel-ui-request <request_id>"
+  exit()
+
+sso.cancelUiRequest(sys.argv[1])

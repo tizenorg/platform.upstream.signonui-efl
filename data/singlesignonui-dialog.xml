@@ -1,0 +1,19 @@
+<node>
+  <interface name="com.google.code.AccountsSSO.gSingleSignOn.UI.Dialog">
+
+    <method name="queryDialog">
+      <arg direction="in" type="a{sv}" name="parameters"/>
+      <arg direction="out" type="a{sv}" name="return_value"/>
+    </method>
+
+    <method name="refreshDialog">
+      <arg direction="in" type="a{sv}" name="parameters"/>
+    </method>
+
+    <method name="cancelUiRequest">
+      <arg direction="in" type="s" name="request_id"/>
+    </method>
+
+  </interface>
+</node>
+

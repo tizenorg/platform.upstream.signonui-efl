@@ -1,0 +1,4 @@
+All tests use the D-Bus api so one of two options needs to be used:
+1. sso-ui binary must be running before tests are run, or
+2. the binary and service file must be installed in a location where
+   the D-Bus service activation will find them

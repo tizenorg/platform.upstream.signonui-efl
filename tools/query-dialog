@@ -1,0 +1,68 @@
+#!/usr/bin/python
+
+'''
+# Examples:
+
+# password query
+./query-dialog QueryPassword True \
+               RequestId "12345" \
+               Caption "Please insert password" \
+               UserName "uname" \
+               Title "Hello"
+
+# password confirm query
+./query-dialog QueryPassword True \
+               RequestId "12345" \
+               Caption "Enter current password and new password twice" \
+               UserName "uname" \
+               Confirm True \
+               Title "Hello"
+
+# captcha query
+./query-dialog CaptchaUrl "file:///usr/share/locale/l10n/us/flag.png" \
+               RequestId "67890" \
+               Caption "Please solve the captcha" \
+               Title "Hello"
+
+# weblogin query
+./query-dialog OpenUrl "http://google.fi/" \
+               FinalUrl "http://xkcd.com/" \
+               RequestId "abcde" \
+               Title "Hello"
+'''
+
+import sys, dbus;
+from pprint import pprint;
+
+def db2p(db):
+    if type(db)==dbus.Dictionary:
+        return dict((db2p(key), db2p(value)) for key, value in db.items())
+    if type(db)==dbus.String:
+        return db+''
+    if type(db)==dbus.Int32:
+        return db+0
+    if type(db)==dbus.Boolean:
+        return db==True
+    return ('type: %s' % type(db), db)
+
+
+bus = dbus.SessionBus()
+proxy = bus.get_object('org.tizen.SSO',
+                       '/org/tizen/SSO/SignonUi')
+sso = dbus.Interface(proxy, dbus_interface='org.tizen.SSO.singlesignonui')
+
+params = dbus.Dictionary({}, signature='sv')
+
+# do some guesswork on the params ...
+args = sys.argv[1:]
+while args:
+    if (args[1].lower() == "true"):
+      val = dbus.Boolean (True)
+    elif (args[1].lower() == "false"):
+      val = dbus.Boolean (False)
+    else:
+      val = dbus.String (args[1])
+    params[args[0]] = val
+    args = args[2:]
+
+pprint(db2p(sso.queryDialog(params, timeout=60*10)))

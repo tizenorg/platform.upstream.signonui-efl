@@ -1,0 +1,20 @@
+Authentication UI for accounts-sso
+
+https://code.google.com/p/accounts-sso/
+
+This is a authentication UI for the Accounts and Single Sign-On
+framework. It includes a D-Bus service. When queryDialog() is 
+called the service will, if needed, show the user a Elementary 
+(EFL) authentication dialog and return the results of this
+authentication when user is ready.
+
+The dialog is a minimal implementation: it does not try to be fancy,
+and has only been 'designed' to the point where all the supported
+options are somewhat available in the UI. Proper user interaction
+design will likely result in a re-implementation of sso-ui-dialog.
+
+This implementation is currently untested with any real sso
+daemon, and the D-Bus API is largely undocumented, so interoperability
+fixes are likely to be needed: As an example, the D-Bus names and paths
+are mostly made up. It does include a small test suite and
+tools to trigger the dialog for manual testing.

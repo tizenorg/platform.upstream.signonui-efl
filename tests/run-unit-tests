@@ -1,0 +1,111 @@
+#!/usr/bin/python
+import dbus, os, unittest, sys;
+import traceback;
+
+bad_params_dict    = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(3)}, signature='sv')
+canceled_dict      = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(4)}, signature='sv')
+not_available_dict = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(5)}, signature='sv')
+
+class TestSequenceFunctions(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        bus = dbus.SessionBus()
+        try:
+            proxy = bus.get_object('com.google.code.AccountsSSO.gSingleSignOn.UI',
+                                   '/')
+            sso = dbus.Interface(proxy, dbus_interface='com.google.code.AccountsSSO.gSingleSignOn.UI')
+
+            address = sso.getBusAddress();
+
+            print 'server address:' , "'" , str(address) , "'" ;
+            bus_a = dbus.bus.Connection(str(address));
+
+            proxy = bus_a.get_object (object_path='/Dialog');
+
+            cls.sso = dbus.Interface(proxy, dbus_interface='com.google.code.AccountsSSO.gSingleSignOn.UI.Dialog');
+        except :
+            print 'EXCEPTION: ' , sys.exc_info(), traceback.print_exc()
+            raise unittest.SkipTest('could not get a D-Bus proxy for SignonUI')
+
+    def test_no_request_id(self):
+        params = dbus.Dictionary({'QueryPassword':True}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), bad_params_dict)
+
+    def test_no_query(self):
+        params = dbus.Dictionary({'RequestId':'test_id'}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), bad_params_dict)
+
+    def test_open_url_with_other_query(self):
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'QueryPassword':True,
+                                  'OpenUrl':'http://first.invalid/',
+                                  'FinalUrl':'http://second.invalid/'}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), bad_params_dict)
+
+    def test_query_password(self):
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'QueryPassword':True,
+                                  'TestReplyValues':'Secret:12345'}, signature='sv')
+        expected = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(0),
+                                    'Secret': '12345'}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), expected)
+
+    def test_query_remember_password(self):
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'QueryPassword':True,
+                                  'RememberPassword': False,
+                                  'TestReplyValues':'Secret:12345,RememberPassword:True'}, signature='sv')
+        expected = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(0),
+                                    'Secret': '12345',
+                                    'RememberPassword': True}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), expected)
+
+    def test_query_username_and_password(self):
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'QueryPassword':True,
+                                  'QueryUserName':True,
+                                  'TestReplyValues':'Secret:12345,UserName:uname'}, signature='sv')
+        expected = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(0),
+                                    'UserName': 'uname',
+                                    'Secret': '12345'}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), expected)
+
+    def test_query_password_and_confirm (self):
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'QueryPassword':True,
+                                  'Confirm':True,
+                                  'Secret':'12345',
+                                  'TestReplyValues':'Secret:12345,SecretConfirm:67890'}, signature='sv')
+        expected = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(0),
+                                    'SecretConfirm': '67890',
+                                    'Secret': '12345'}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), expected)
+
+    def test_query_captcha(self):
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'CaptchaUrl':'file:///usr/share/locale/l10n/us/flag.png',
+                                  'TestReplyValues':'CaptchaResponse:qwerty'}, signature='sv')
+        expected = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(0),
+                                    'CaptchaResponse': 'qwerty'}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), expected)
+
+    def test_query_oauth(self):
+        # ugly, this test actually opens the dialog for a moment
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'OpenUrl':'file:///?param=val&param2=val2',
+                                  'FinalUrl':'file:///'}, signature='sv')
+        expected = dbus.Dictionary({'QueryErrorCode': dbus.UInt32(0),
+                                    'UrlResponse': 'file:///?param=val&param2=val2'}, signature='sv')
+        retval = self.sso.queryDialog(params)
+        # Elementary might not be compiled with Web, have to accept "not available"
+        self.assertTrue(retval == expected or retval == not_available_dict)
+
+    def test_cancel(self):
+        params = dbus.Dictionary({'RequestId':'test_id',
+                                  'QueryPassword':True,
+                                  'TestReplyValues':'QueryErrorCode:4'}, signature='sv')
+        self.assertEqual(self.sso.queryDialog(params), canceled_dict)
+
+if __name__ == '__main__':
+    unittest.main();
+

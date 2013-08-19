@@ -1,0 +1,25 @@
+#!/usr/bin/python
+
+import sys, dbus;
+from pprint import pprint;
+
+bus = dbus.SessionBus()
+proxy = bus.get_object('org.tizen.SSO',
+                       '/org/tizen/SSO/SignonUi')
+sso = dbus.Interface(proxy, dbus_interface='org.tizen.SSO.singlesignonui')
+
+params = dbus.Dictionary({}, signature='sv')
+
+# do some guesswork on the params ...
+args = sys.argv[1:]
+while args:
+    if (args[1].lower() == "true"):
+      val = dbus.Boolean (True)
+    elif (args[1].lower() == "false"):
+      val = dbus.Boolean (False)
+    else:
+      val = dbus.String (args[1])
+    params[args[0]] = val
+    args = args[2:]
+
+sso.refreshDialog(params)

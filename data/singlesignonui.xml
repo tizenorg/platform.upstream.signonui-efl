@@ -1,0 +1,8 @@
+<node>
+  <interface name="com.google.code.AccountsSSO.gSingleSignOn.UI">
+    <method name="getBusAddress">
+      <arg direction="out" type="s" name="bus_socket_address"/>
+    </method>
+  </interface>
+</node>
+
