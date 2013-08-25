@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT([signonui-efl], [0.0.1], [jussi.kukkonen@intel.com])
+AC_INIT([signonui-efl], [0.0.2], [jussi.kukkonen@intel.com])
 AM_INIT_AUTOMAKE([1.11 -Wall -Werror dist-bzip2])
 AM_SILENT_RULES([yes])
 
@@ -15,6 +15,8 @@ PKG_CHECK_MODULES(EFL,
                   ecore
                   evas
                   elementary)
+PKG_CHECK_MODULES(EWEBKIT,
+                  ewebkit2)
 
 PKG_CHECK_MODULES(GSIGNOND,
                   gsignond)

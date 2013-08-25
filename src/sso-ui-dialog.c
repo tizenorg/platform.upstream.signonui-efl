@@ -22,15 +22,29 @@
  */
 
 #include <Elementary.h>
-#include <gsignond/gsignond-signonui.h>
+#include <ewk_view.h>
 #include <gsignond/gsignond-signonui-data.h>
 
 #include "sso-ui-dialog.h"
+/*
+   FIXME : below defs should be remove once we revert 
+   change in gsignond
+*/
+#ifndef gsignond_signonui_data_ref
+#   define gsignond_signonui_data_ref gsignond_dictionary_ref
+#endif
+#ifndef gsignond_signonui_data_unref
+#   define gsignond_signonui_data_unref gsignond_dictionary_unref
+#endif
+#ifndef gsignond_signonui_data_new
+#   define gsignond_signonui_data_new gsignond_dictionary_new
+#endif
 
 G_DEFINE_TYPE (SSOUIDialog, sso_ui_dialog, G_TYPE_OBJECT)
 
 #define UI_DIALOG_PRIVATE(o) \
   (G_TYPE_INSTANCE_GET_PRIVATE ((o), SSO_TYPE_UI_DIALOG, SSOUIDialogPrivate))
+
 
 struct _SSOUIDialogPrivate {
   GDBusMethodInvocation  *invocation;
@@ -283,7 +297,7 @@ on_forgot_clicked (void *data, Evas_Object *obj, void *event_info)
 }
 
 static void
-on_web_uri_change (void *data, Evas_Object *obj, void *event_info)
+on_web_url_change (void *data, Evas_Object *obj, void *event_info)
 {
   SSOUIDialog *self = data;
   const char *uri = event_info;
@@ -297,6 +311,20 @@ on_web_uri_change (void *data, Evas_Object *obj, void *event_info)
 
   self->priv->error_code = SIGNONUI_ERROR_NONE;
   close_dialog (self);
+}
+
+static void
+on_web_url_load_error (void *data, Evas_Object *obj, void *event_info)
+{
+    const Ewk_Error* error = (const Ewk_Error*)event_info;
+
+    g_debug ("%s, error %s", __FUNCTION__, ewk_error_description_get(error));
+}
+
+static void
+on_web_url_load_finished (void *data, Evas_Object *obj, void *event_info)
+{
+    g_debug("%s", __FUNCTION__);
 }
 
 static Evas_Object*
@@ -381,24 +409,29 @@ build_dialog (SSOUIDialog *self)
 
   /* Web Dialog for Outh */
   if ((str = gsignond_signonui_data_get_open_url (priv->params))) {
+    Evas *canvas = NULL;
     priv->oauth_final_url = gsignond_signonui_data_get_final_url (priv->params);
-    if (elm_need_web ()) {
-      priv->oauth_web = elm_web_add (priv->dialog);
-      if (!elm_web_uri_set(priv->oauth_web, str))
-        g_warning ("Failed to set URI '%s'", str);
+    g_debug ("Loading url : %s", str);
 
-      evas_object_size_hint_min_set (priv->oauth_web, 200, 200);
-      evas_object_size_hint_weight_set(priv->oauth_web,
+    canvas = evas_object_evas_get (priv->dialog);
+    priv->oauth_web = ewk_view_add(canvas);
+
+    if (!ewk_view_url_set(priv->oauth_web, str))
+      g_warning ("Failed to set URI '%s'", str);
+
+    evas_object_size_hint_min_set (priv->oauth_web, 400, 300);
+    evas_object_size_hint_weight_set(priv->oauth_web,
                                      EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
-      evas_object_size_hint_align_set (priv->oauth_web,
+    evas_object_size_hint_align_set (priv->oauth_web,
                                      EVAS_HINT_FILL, EVAS_HINT_FILL);
-      evas_object_smart_callback_add (priv->oauth_web, "uri,changed",
-                                    on_web_uri_change, self);
-      elm_box_pack_end (content_box, priv->oauth_web);
-    } else {
-      g_debug ("Web login is disabled: Elementary does not have Ewebkit support");
-      priv->oauth_web = NULL;
-    } 
+    evas_object_smart_callback_add (priv->oauth_web, "url,changed",
+                                  on_web_url_change, self);
+    evas_object_smart_callback_add (priv->oauth_web, "load,error",
+                                  on_web_url_load_error, self);
+    evas_object_smart_callback_add (priv->oauth_web, "load,finished",
+                                  on_web_url_load_finished, self);
+    elm_box_pack_end (content_box, priv->oauth_web);
+    evas_object_show(priv->oauth_web);
   }
   else {
     gboolean query_username = FALSE;

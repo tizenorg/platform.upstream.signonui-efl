@@ -29,6 +29,7 @@
 #include <glib/gstdio.h>
 #include <Ecore.h>
 #include <Elementary.h>
+#include <EWebKit2.h>
 #include <gsignond/gsignond-signonui-data.h>
 
 #include "sso-ui-dbus-glue.h"
@@ -40,6 +41,20 @@
 #endif
 
 #define SSO_UI_NAME "com.google.code.AccountsSSO.gSingleSignOn.UI"
+
+/*
+   FIXME : below defs should be remove once we revert 
+   change in gsignond
+*/
+#ifndef gsignond_signonui_data_new_from_variant
+#   define gsignond_signonui_data_new_from_variant gsignond_dictionary_new_from_variant
+#endif
+#ifndef gsignond_signonui_data_to_variant
+#   define gsignond_signonui_data_to_variant gsignond_dictionary_to_variant
+#endif
+#ifndef gsignond_signonui_data_unref
+#   define gsignond_signonui_data_unref gsignond_dictionary_unref
+#endif
 
 GDBusServer *bus_server = NULL; /* p2p server */
 GHashTable *dialogs;
@@ -395,6 +410,7 @@ elm_main (int argc, char **argv)
 #if !GLIB_CHECK_VERSION (2, 36, 0)
   g_type_init ();
 #endif
+  ewk_init ();
 
   if (ecore_getopt_parse (&optdesc, values, argc, argv) < 0) {
       fprintf (stderr, "Argument parsing failed\n");
@@ -447,6 +463,7 @@ elm_main (int argc, char **argv)
   _close_server ();
   g_hash_table_unref (dialogs);
 
+  ewk_shutdown ();
   elm_shutdown ();
   g_debug ("Clean shut down");
 

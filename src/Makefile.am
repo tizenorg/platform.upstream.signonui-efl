@@ -29,6 +29,7 @@ signon_ui_SOURCES = \
 signon_ui_CFLAGS = \
 	$(GLIB_CFLAGS) \
 	$(EFL_CFLAGS) \
+    $(EWEBKIT_CFLAGS) \
     $(GSIGNOND_CFLAGS) \
     -Wall -Werror \
 	-I$(top_srcdir)
@@ -36,6 +37,7 @@ signon_ui_CFLAGS = \
 signon_ui_LDADD = \
 	$(GLIB_LIBS) \
 	$(EFL_LIBS) \
+    $(EWEBKIT_LIBS) \
     $(GSIGNOND_LIBS)
 
 CLEANFILES = \
