@@ -1,8 +1,8 @@
 Name: signon-ui
 Summary: EFL based Single Sign-On UI
 URL: https://code.google.com/p/accounts-sso/source/checkout?repo=signonui-efl
-Version: 0.0.1
-Release: 1
+Version: 0.0.2
+Release: 2
 Group: Security/Secure Storage
 License: LGPL-2.1+
 Source: %{name}-%{version}.tar.gz
@@ -12,6 +12,7 @@ BuildRequires: pkgconfig(glib-2.0) >= 2.30
 BuildRequires: pkgconfig(gio-unix-2.0)
 BuildRequires: pkgconfig(evas)
 BuildRequires: pkgconfig(elementary)
+BuildRequires: pkgconfig(ewebkit2)
 BuildRequires: pkgconfig(gsignond)
 Provides: signon-ui
 
