@@ -1,3 +1,7 @@
+* Thu Jul 17 2014 Amarnath Valluri <amarnath.valluri@linux.intel.com>
+- Release 0.0.3
+- made webkit support optional
+
 * Mon Aug 26 2013 Amarnath Valluri <amarnath.valluri@linux.intel.com> upstream/0.0.2@4f1be2f
 - spec file changes to support release 0.0.2
 - packaging files added
