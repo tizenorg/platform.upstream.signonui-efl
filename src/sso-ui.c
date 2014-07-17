@@ -28,8 +28,11 @@
 #include <gio/gio.h>
 #include <glib/gstdio.h>
 #include <Ecore.h>
+#include <Ecore_Getopt.h>
 #include <Elementary.h>
+#ifdef USE_WEBKIT
 #include <EWebKit2.h>
+#endif // USE_WEBKIT
 #include <gsignond/gsignond-signonui-data.h>
 
 #include "sso-ui-dbus-glue.h"
@@ -59,6 +62,10 @@
 GDBusServer *bus_server = NULL; /* p2p server */
 GHashTable *dialogs;
 gchar *socket_file_path = NULL; /* p2p file system socket path */
+#ifndef USE_WEBKIT
+char  *browser_cmd = BROWSER_CMD;      /* Command to use to to launch browser */
+guint  http_port = DEFULT_HTTP_PORT;
+#endif // USE_WEBKIT
 
 #ifdef ENABLE_TIMEOUT
 Ecore_Timer *exit_timer_id = 0;
@@ -78,7 +85,7 @@ exit_sso_ui (gpointer data)
 
   return ECORE_CALLBACK_CANCEL;
 }
-#endif
+#endif // USE_WEBKIT
 
 static void
 return_value (SSOUIDialog *dialog, SSODbusUIDialog *dbus_ui_dialog)
@@ -99,6 +106,7 @@ static void
 on_dialog_close (SSOUIDialog *dialog,
                  gpointer     userdata)
 {
+  g_debug ("Dialog closed");
   return_value (dialog, SSO_DBUS_UIDIALOG(userdata));
   g_hash_table_remove (dialogs, sso_ui_dialog_get_request_id (dialog));
 
@@ -106,7 +114,7 @@ on_dialog_close (SSOUIDialog *dialog,
   if (g_hash_table_size (dialogs) == 0 && exit_timer_id) {
     ecore_timer_thaw (exit_timer_id);
   }
-#endif
+#endif // ENABLE_TIMEOUT
 }
 
 static gboolean
@@ -126,8 +134,10 @@ on_query_dialog (SSODbusUIDialog       *ui,
 
 
   if (!sso_ui_dialog_show (dialog)) {
+    g_warning("Show dialog failed, returning error");
     /* there's an error, return it */
     return_value (dialog, ui);
+    g_object_unref(dialog);
   } else {
     g_object_set_data (G_OBJECT (user_data), "dialog", dialog);
     g_hash_table_insert (dialogs,
@@ -135,7 +145,7 @@ on_query_dialog (SSODbusUIDialog       *ui,
                          (gpointer)dialog);
 #ifdef ENABLE_TIMEOUT
     if (exit_timer_id) ecore_timer_freeze (exit_timer_id);
-#endif
+#endif // ENABLE_TIMEOUT
   }
 
   return TRUE;
@@ -273,7 +283,7 @@ on_name_lost (GDBusConnection *connection,
 #ifdef ENABLE_TIMEOUT
   if (exit_timer_id) ecore_timer_del (exit_timer_id);
   exit_timer_id = 0;
-#endif
+#endif // ENABLE_TIMEOUT
   elm_exit ();
 }
 
@@ -349,7 +359,7 @@ on_bus_acquired (GDBusConnection *connection,
   g_debug ("UI Dialog server started at : %s", g_dbus_server_get_client_address (bus_server));
 #ifdef ENABLE_TIMEOUT
   if (exit_timer_id) ecore_timer_thaw (exit_timer_id);
-#endif
+#endif // ENABLE_TIMEOUT
 }
 
 static void 
@@ -386,7 +396,7 @@ elm_main (int argc, char **argv)
   guint owner_id = 0;
   Ecore_Event_Handler *hup_signal_handler = 0;
   Ecore_Event_Handler *exit_signal_handler = 0;
-  Eina_Bool keep_running, help;
+  Eina_Bool keep_running = FALSE, help = FALSE;
   static const Ecore_Getopt optdesc = {
       "gSSO UI daemon",
       NULL,
@@ -397,12 +407,20 @@ elm_main (int argc, char **argv)
       0,
       {
           ECORE_GETOPT_STORE_TRUE('k', "keep-running", "Do not timeout the daemon"),
+#ifndef USE_WEBKIT
+          ECORE_GETOPT_STORE_STR('b', "browser-cmd", "Command to use to launch browser"),
+          ECORE_GETOPT_STORE_UINT('p', "http-port", "Http server port number"),
+#endif // USE_WEBKIT
           ECORE_GETOPT_HELP('h', "help"),
           ECORE_GETOPT_SENTINEL
       }
   };
   Ecore_Getopt_Value values[] = {
       ECORE_GETOPT_VALUE_BOOL(keep_running),
+#ifndef USE_WEBKIT
+      ECORE_GETOPT_VALUE_STR(browser_cmd),
+      ECORE_GETOPT_VALUE_UINT(http_port),
+#endif // USE_WEBKIT
       ECORE_GETOPT_VALUE_BOOL(help),
       ECORE_GETOPT_VALUE_NONE
   };
@@ -410,7 +428,9 @@ elm_main (int argc, char **argv)
 #if !GLIB_CHECK_VERSION (2, 36, 0)
   g_type_init ();
 #endif
+#ifdef USE_WEBKIT
   ewk_init ();
+#endif // USE_WEBKIT
 
   if (ecore_getopt_parse (&optdesc, values, argc, argv) < 0) {
       fprintf (stderr, "Argument parsing failed\n");
@@ -434,7 +454,7 @@ elm_main (int argc, char **argv)
         fprintf (stderr, "Could not create Ecore Timer, Ignoring daemon timeout");
     }
   }
-#endif
+#endif // ENABLE_TIMEOUT
 
   dialogs = g_hash_table_new_full (g_str_hash, g_str_equal,
                                    NULL, g_object_unref);
@@ -463,7 +483,9 @@ elm_main (int argc, char **argv)
   _close_server ();
   g_hash_table_unref (dialogs);
 
+#ifdef USE_WEBKIT
   ewk_shutdown ();
+#endif // USE_WEBKIT
   elm_shutdown ();
   g_debug ("Clean shut down");
 

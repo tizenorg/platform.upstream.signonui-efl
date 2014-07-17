@@ -21,8 +21,15 @@
  * 02110-1301 USA
  */
 
+#include "config.h"
+#include <stdlib.h>
 #include <Elementary.h>
+#ifdef USE_WEBKIT
 #include <ewk_view.h>
+#else
+#include <Ecore.h>
+#include <libsoup/soup.h>
+#endif // USE_WEBKIT
 #include <gsignond/gsignond-signonui-data.h>
 
 #include "sso-ui-dialog.h"
@@ -45,9 +52,18 @@ G_DEFINE_TYPE (SSOUIDialog, sso_ui_dialog, G_TYPE_OBJECT)
 #define UI_DIALOG_PRIVATE(o) \
   (G_TYPE_INSTANCE_GET_PRIVATE ((o), SSO_TYPE_UI_DIALOG, SSOUIDialogPrivate))
 
+#ifndef USE_WEBKIT
+extern char *browser_cmd; // sso-ui.c : command line switch
+extern unsigned int http_port; // sso-ui.c: comnand line switch
+
+static gboolean start_http_server(SSOUIDialog *self);
+static gboolean start_browser_exe(SSOUIDialog *self, const gchar *url);
+static void stop_http_server(SSOUIDialog *self);
+static void stop_browser_exe(SSOUIDialog *self);
+#endif // USE_WEBKIT
 
 struct _SSOUIDialogPrivate {
-  GDBusMethodInvocation  *invocation;
+  GDBusMethodInvocation *invocation;
   GSignondSignonuiData *params;
   const gchar *old_password;
   const gchar *oauth_final_url;
@@ -68,8 +84,13 @@ struct _SSOUIDialogPrivate {
   Evas_Object *remember_check;
   Evas_Object *captcha_image;
   Evas_Object *captcha_entry;
+#ifdef USE_WEBKIT
   Evas_Object *oauth_web;
-
+#else
+  Ecore_Exe *browser_exe;
+  Ecore_Event_Handler *browser_event_handler;
+  SoupServer *http_server;
+#endif // USE_WEBKIT
 };
 
 enum {
@@ -136,19 +157,27 @@ sso_ui_dialog_dispose (GObject *object)
 {
   SSOUIDialog *self = SSO_UI_DIALOG (object);
 
-  gsignond_signonui_data_unref (self->priv->params);
-  self->priv->params = NULL;
+  if (self->priv->params) {
+    gsignond_signonui_data_unref (self->priv->params);
+    self->priv->params = NULL;
+  }
 #if 0
   g_free (self->priv->test_reply);
   self->priv->test_reply = NULL;
 #endif
-  g_free (self->priv->oauth_response);
-  self->priv->oauth_response = NULL;
+  if (self->priv->oauth_response) {
+    g_free (self->priv->oauth_response);
+    self->priv->oauth_response = NULL;
+  }
 
   if (self->priv->dialog) {
     evas_object_del (self->priv->dialog);
     self->priv->dialog = NULL;
   }
+#ifndef USE_WEBKIT
+  stop_http_server(self);
+  stop_browser_exe(self);
+#endif // USE_WEBKIT
 
   G_OBJECT_CLASS (sso_ui_dialog_parent_class)->dispose (object);
 }
@@ -213,7 +242,13 @@ sso_ui_dialog_init (SSOUIDialog *self)
   priv->remember_check = NULL;
   priv->captcha_image = NULL;
   priv->captcha_entry = NULL;
+#ifdef USE_WEBKIT
   priv->oauth_web = NULL;
+#else
+  priv->browser_exe = NULL;
+  priv->browser_event_handler = NULL;
+  priv->http_server = NULL;
+#endif // USE_WEBKIT
 
   self->priv = priv;
 }
@@ -224,8 +259,10 @@ close_dialog (SSOUIDialog *self)
   g_debug ("Dialog %s closed", gsignond_signonui_data_get_request_id (
                 self->priv->params));
 
-  evas_object_hide (self->priv->dialog);
-  self->priv->dialog = NULL;
+  if (self->priv->dialog) {
+    evas_object_hide (self->priv->dialog);
+    self->priv->dialog = NULL;
+  }
 
   g_signal_emit (self, signals[CLOSED_SIGNAL], 0);
 }
@@ -296,6 +333,7 @@ on_forgot_clicked (void *data, Evas_Object *obj, void *event_info)
   close_dialog (self);
 }
 
+#ifdef USE_WEBKIT
 static void
 on_web_url_change (void *data, Evas_Object *obj, void *event_info)
 {
@@ -326,6 +364,177 @@ on_web_url_load_finished (void *data, Evas_Object *obj, void *event_info)
 {
     g_debug("%s", __FUNCTION__);
 }
+#else
+
+static void
+http_server_cb(SoupServer* server, SoupMessage* message, const char* path,
+                GHashTable* query, SoupClientContext* client,
+                gpointer userdata) {
+  SSOUIDialog *self = SSO_UI_DIALOG(userdata);
+  SoupURI* uri = soup_message_get_uri(message);
+
+  if (strcmp(path, "/") != 0)
+    return;
+
+  const char *response = "\
+    <html><head></head>\
+    <body><script>\
+      window.onload = function() {\
+        console.log('Window loaded ....');\
+        window.close();\
+      };\
+    </script>\
+    <p>Authentication successfull. You can close the window to continue.</body>\
+    </html>";
+
+  soup_message_set_status(message, SOUP_STATUS_OK);
+  soup_message_set_response(message, "text/html", SOUP_MEMORY_COPY,
+      response, strlen(response));
+
+  stop_browser_exe(self);
+  stop_http_server(self);
+
+// FIXME: if we pick our own http port number we should revert it
+//        from the responce uri. but we not yet support this as changes
+//        needed from oauth plugin to support this custom http port number.
+//  SoupURI *redirect_uri = soup_uri_new(self->priv->oauth_final_url);
+//  if (soup_uri_get_port (uri) != soup_uri_get_port (redirect_uri))
+//    soup_uri_set_port (uri, soup_uri_get_port (redirect_uri));
+//  soup_uri_free (redirect_uri);
+  self->priv->oauth_response = g_strdup (soup_uri_to_string(uri, FALSE));
+  g_debug ("Oauth Responce : %s", self->priv->oauth_response);
+  self->priv->error_code = SIGNONUI_ERROR_NONE;
+  close_dialog (self);
+}
+
+static gboolean 
+start_http_server(SSOUIDialog *self) {
+  if (self->priv->http_server) return TRUE;
+
+  SoupURI *uri = soup_uri_new(self->priv->oauth_final_url);
+  if (!uri) {
+    g_warning("NULL redirect url : %s", self->priv->oauth_final_url);
+    return FALSE;
+  }
+  
+  if (!soup_uri_get_scheme(uri) || !soup_uri_get_host(uri)) {
+    g_warning("Not a valid redirect url : %s", self->priv->oauth_final_url);
+    soup_uri_free(uri);
+    return FALSE;
+  }
+
+  if (strcmp(soup_uri_get_scheme(uri), "http") != 0 ||
+      (strcmp(soup_uri_get_host(uri), "localhost") != 0 &&
+       strcmp(soup_uri_get_host(uri), "127.0.0.1") != 0)) {
+    g_warning("Not a localhost redirect uri '%s', so not starting http server",
+        self->priv->oauth_final_url);
+    soup_uri_free(uri);
+    return FALSE;
+  }
+
+  /* if no port specified in redirect_url use the default one
+   * and update the oauth_url with that port number
+   */
+  if (soup_uri_uses_default_port(uri)) {
+    soup_uri_set_port(uri, http_port);
+    SoupURI *oauth_uri = soup_uri_new(
+        gsignond_signonui_data_get_open_url(self->priv->params));
+    GHashTable *query = soup_form_decode_urlencoded(
+      soup_uri_get_query(oauth_uri));
+    g_hash_table_insert(query, g_strdup("redirect_uri"),
+        soup_uri_to_string(uri, FALSE));
+
+    soup_uri_set_query_from_form(oauth_uri, query);
+
+    g_hash_table_destroy(query);
+
+    gsignond_signonui_data_set_open_url(self->priv->params,
+        soup_uri_to_string(oauth_uri, FALSE));
+    soup_uri_free(oauth_uri);
+  }
+
+  guint port = soup_uri_get_port(uri);
+  soup_uri_free(uri);
+  // start http server to listen for authentication results
+  SoupServer *http_server = soup_server_new(SOUP_SERVER_PORT, port, NULL);
+  if (!http_server) {
+    g_warning("Failed to start http server ");
+    return FALSE;
+  }
+  g_debug("Started http server at port '%u'",
+      soup_server_get_port(http_server));
+
+  soup_server_add_handler(http_server, "/", http_server_cb, self, NULL);
+  soup_server_run_async(http_server);
+  self->priv->http_server = http_server;
+
+  return TRUE;
+}
+
+static void
+stop_http_server(SSOUIDialog *self) {
+  if (!self || !self->priv->http_server) return ;
+  soup_server_quit(self->priv->http_server);
+  soup_server_disconnect(self->priv->http_server);
+  g_clear_object(&self->priv->http_server);
+}
+
+static Eina_Bool
+handle_browser_exe_event(void *data, int type, void *event) {
+  if (type != ECORE_EXE_EVENT_DEL) return 1;
+  SSOUIDialog *self = SSO_UI_DIALOG(data);
+
+  g_debug("Browser process dead");
+  if (self->priv->browser_exe) {
+    ecore_event_handler_del(self->priv->browser_event_handler);
+    self->priv->browser_exe = NULL;
+  }
+
+  self->priv->error_code = SIGNONUI_ERROR_CANCELED;
+  close_dialog(self);
+
+  return 0;
+}
+
+static gboolean
+start_browser_exe(SSOUIDialog *self, const gchar *url) {
+  if (self->priv->browser_exe) return TRUE;
+
+  pid_t browser_exe_id;
+  char cmd[1024];
+  snprintf(cmd, 1023, "%s '%s'", browser_cmd, url);
+  g_debug("Launching browser : %s", cmd);
+  self->priv->browser_exe = ecore_exe_pipe_run(
+      cmd, ECORE_EXE_TERM_WITH_PARENT, NULL);
+  if (!self->priv->browser_exe) {
+   g_warning("Failed to start browser session");
+   return FALSE;
+  }
+  browser_exe_id = ecore_exe_pid_get(self->priv->browser_exe);
+
+  g_debug("Brower process started with pid '%u'", browser_exe_id);
+
+  snprintf(cmd, 1023, "pgrep -P %u > /home/avalluri/pids", browser_exe_id);
+  if (system(cmd) == -1)
+    g_debug("Failed to pgrep");;
+  
+  self->priv->browser_event_handler = ecore_event_handler_add(
+      ECORE_EXE_EVENT_DEL, handle_browser_exe_event, self);
+
+  return TRUE;
+}
+
+static void
+stop_browser_exe(SSOUIDialog *self) {
+  if (self->priv->browser_exe) {
+    ecore_event_handler_del(self->priv->browser_event_handler);
+    ecore_exe_kill(self->priv->browser_exe); 
+    ecore_exe_free(self->priv->browser_exe);
+    self->priv->browser_exe = NULL;
+  }
+}
+
+#endif // USE_WEBKIT
 
 static Evas_Object*
 add_entry (Evas_Object *window, Evas_Object *container, const gchar *label_text)
@@ -362,7 +571,17 @@ build_dialog (SSOUIDialog *self)
   SSOUIDialogPrivate *priv = self->priv;
 
   const gchar *str = NULL;
-
+#ifndef USE_WEBKIT
+  if (gsignond_signonui_data_get_open_url (priv->params) != NULL) {
+    priv->oauth_final_url = gsignond_signonui_data_get_final_url (priv->params);
+    if (!start_http_server(self)) {
+      close_dialog(self);
+      return FALSE;
+    }
+    start_browser_exe(self, gsignond_signonui_data_get_open_url (priv->params));
+    return TRUE;
+  }
+#endif // USE_WEBKIT
   Evas_Object *bg, *box, *frame, *content_box;
   Evas_Object *button_frame, *pad_frame, *button_box;
   Evas_Object *cancel_button, *ok_button;
@@ -409,6 +628,7 @@ build_dialog (SSOUIDialog *self)
 
   /* Web Dialog for Outh */
   if ((str = gsignond_signonui_data_get_open_url (priv->params))) {
+#ifdef USE_WEBKIT
     Evas *canvas = NULL;
     priv->oauth_final_url = gsignond_signonui_data_get_final_url (priv->params);
     g_debug ("Loading url : %s", str);
@@ -432,6 +652,7 @@ build_dialog (SSOUIDialog *self)
                                   on_web_url_load_finished, self);
     elm_box_pack_end (content_box, priv->oauth_web);
     evas_object_show(priv->oauth_web);
+#endif // USE_WEBKIT
   }
   else {
     gboolean query_username = FALSE;
@@ -451,20 +672,25 @@ build_dialog (SSOUIDialog *self)
     gsignond_signonui_data_get_query_username (priv->params, &query_username);
     str = gsignond_signonui_data_get_username (priv->params);
     elm_entry_entry_set (priv->username_entry, str ? str : "");
-    g_debug ("Settin username entry to editable %d", query_username || !str ? EINA_TRUE : EINA_FALSE);
-    elm_entry_editable_set (priv->username_entry, query_username || !str ? EINA_TRUE : EINA_FALSE);
+    g_debug ("Settin username entry to editable %d",
+        query_username || !str ? EINA_TRUE : EINA_FALSE);
+    elm_entry_editable_set (priv->username_entry,
+        query_username || !str ? EINA_TRUE : EINA_FALSE);
 
     priv->password_entry = add_entry (priv->dialog, content_box, "Password:");
     elm_entry_password_set (priv->password_entry, EINA_TRUE);
     if (gsignond_signonui_data_get_confirm (priv->params, &confirm) && confirm) {
       priv->old_password = gsignond_signonui_data_get_password (priv->params);
-      elm_entry_entry_set (priv->password_entry, priv->old_password ? priv->old_password : "");
+      elm_entry_entry_set (priv->password_entry,
+          priv->old_password ? priv->old_password : "");
       elm_entry_editable_set (priv->password_entry, EINA_FALSE);
         
-      priv->password_confirm1_entry = add_entry (priv->dialog, content_box, "New Password:");
+      priv->password_confirm1_entry = add_entry (priv->dialog,
+          content_box, "New Password:");
       elm_entry_password_set (priv->password_confirm1_entry, EINA_TRUE);
 
-      priv->password_confirm2_entry = add_entry (priv->dialog, content_box, "Confirm New Password:");
+      priv->password_confirm2_entry = add_entry (priv->dialog, content_box,
+          "Confirm New Password:");
       elm_entry_password_set (priv->password_confirm2_entry, EINA_TRUE);
     }
     else 
@@ -563,14 +789,43 @@ build_dialog (SSOUIDialog *self)
   return TRUE;
 }
 
+static gboolean
+validate_params(GSignondSignonuiData *params) {
+  gboolean query_username = FALSE;
+  gboolean query_password = FALSE;
+  gboolean query_confirm = FALSE;
+  const gchar *request_id = gsignond_signonui_data_get_request_id (params);
+  gboolean query_oauth = 
+    gsignond_signonui_data_get_open_url(params) != NULL;
+  gsignond_signonui_data_get_query_username (params, &query_username);
+  gsignond_signonui_data_get_query_password (params, &query_password);
+  gsignond_signonui_data_get_confirm (params, &query_confirm);
+
+  if(!request_id ||
+     !(query_oauth || query_username || query_password || query_confirm))
+    return FALSE;
+  if (query_oauth)
+    return !(query_username || query_password || query_confirm) &&
+             (gsignond_signonui_data_get_open_url(params) &&
+              gsignond_signonui_data_get_final_url(params));
+  if (query_confirm)
+    return gsignond_signonui_data_get_password(params) != NULL;
+
+  return TRUE;
+}
+
 void
 sso_ui_dialog_set_parameters (SSOUIDialog *self,
                               GSignondSignonuiData *parameters)
 {
   SSOUIDialogPrivate *priv = self->priv;
 
-  priv->params = gsignond_signonui_data_ref (parameters);
+  if (!validate_params (parameters)) { 
+    priv->error_code = SIGNONUI_ERROR_BAD_PARAMETERS;
+    return;
+  }
 
+  priv->params = gsignond_signonui_data_ref (parameters);
   build_dialog (self);
 }
 
@@ -597,7 +852,7 @@ sso_ui_dialog_get_invocation (SSOUIDialog *self)
 }
 
 const gchar*
-sso_ui_dialog_get_request_id   (SSOUIDialog *self)
+sso_ui_dialog_get_request_id (SSOUIDialog *self)
 {
   return gsignond_signonui_data_get_request_id (self->priv->params);
 }
@@ -681,57 +936,25 @@ sso_ui_dialog_handle_test_reply (SSOUIDialog *self)
 gboolean
 sso_ui_dialog_show (SSOUIDialog *self)
 {
+  g_return_val_if_fail(SSO_IS_UI_DIALOG(self), FALSE);
+
   SSOUIDialogPrivate *priv = self->priv;
+  if (priv->error_code != SIGNONUI_ERROR_NONE) return FALSE;
 
-  const gchar *request_id = gsignond_signonui_data_get_request_id (priv->params);
-  gboolean query_oauth = FALSE;
-  gboolean query_username = FALSE;
-  gboolean query_password = FALSE;
-  gboolean query_confirm = FALSE;
-
-  query_oauth = gsignond_signonui_data_get_open_url (priv->params) != NULL;
-  gsignond_signonui_data_get_query_username (priv->params, &query_username);
-  gsignond_signonui_data_get_query_password (priv->params, &query_password);
-  gsignond_signonui_data_get_confirm (priv->params, &query_confirm);
-
-  if (!request_id) {
-    priv->error_code = SIGNONUI_ERROR_BAD_PARAMETERS;
-    return FALSE;
-  } else if (query_oauth) {
-    if (query_username ||
-        query_password ||
-        query_confirm) {
-      priv->error_code = SIGNONUI_ERROR_BAD_PARAMETERS;
-      return FALSE;
-    } 
-    else if (!priv->oauth_final_url) {
-      priv->error_code = SIGNONUI_ERROR_BAD_PARAMETERS;
-      return FALSE;
-    }
-    else if (!priv->oauth_web) {
+  if (gsignond_signonui_data_get_open_url(self->priv->params)) {
+#ifdef USE_WEBKIT
+    if (!priv->oauth_web) {
+#else
+    if (!(priv->browser_exe && priv->http_server)) {
+#endif // USE_WEBKIT
       priv->error_code = SIGNONUI_ERROR_NOT_AVAILABLE;
       return FALSE;
     }
+  } else {
+    if (!priv->dialog)
+      return FALSE;
+    evas_object_show (priv->dialog);
   }
-  else if (!query_username &&
-           !query_password &&
-           !query_confirm) {
-    priv->error_code = SIGNONUI_ERROR_BAD_PARAMETERS;
-    return FALSE;
-  } else if (query_confirm &&
-             !priv->old_password) {
-    priv->error_code = SIGNONUI_ERROR_BAD_PARAMETERS;
-    return FALSE;
-  }
-#if 0
-  if (priv->test_reply) {
-    g_debug ("Filling dialog with given test reply values");
-    sso_ui_dialog_handle_test_reply (self);
-    return FALSE;
-  }
-#endif
-  evas_object_show (priv->dialog);
-  g_debug ("Dialog %s shown", request_id);
 
   return TRUE;
 }

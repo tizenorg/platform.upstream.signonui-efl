@@ -1,4 +1,4 @@
-libexec_PROGRAMS = signon-ui
+libexec_PROGRAMS = signonui-efl
 
 BUILT_SOURCES = \
     sso-ui-dbus-glue.c \
@@ -20,25 +20,31 @@ sso-ui-dialog-dbus-glue.c sso-ui-dialog-dbus-glue.h: ../data/singlesignonui-dial
     --c-namespace SSO_Dbus \
 	$<
 
-signon_ui_SOURCES = \
+signonui_efl_SOURCES = \
 	$(BUILT_SOURCES) \
 	sso-ui-dialog.c \
 	sso-ui-dialog.h \
 	sso-ui.c
 
-signon_ui_CFLAGS = \
+signonui_efl_CFLAGS = \
 	$(GLIB_CFLAGS) \
 	$(EFL_CFLAGS) \
-    $(EWEBKIT_CFLAGS) \
     $(GSIGNOND_CFLAGS) \
     -Wall -Werror \
 	-I$(top_srcdir)
 
-signon_ui_LDADD = \
+signonui_efl_LDADD = \
 	$(GLIB_LIBS) \
 	$(EFL_LIBS) \
-    $(EWEBKIT_LIBS) \
-    $(GSIGNOND_LIBS)
+  $(GSIGNOND_LIBS)
+
+if WITH_WEBKIT
+signonui_efl_CFLAGS += $(EWEBKIT_CFLAGS)
+signonui_efl_LDADD += $(EWEBKIT_LIBS) 
+else
+signonui_efl_CFLAGS += $(LIBSOUP_CFLAGS)
+signonui_efl_LDADD += $(LIBSOUP_LIBS) 
+endif
 
 CLEANFILES = \
 	$(BUILT_SOURCES) \
