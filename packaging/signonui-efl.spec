@@ -52,10 +52,6 @@ rm -rf %{buildroot}
 %make_install
 
 
-%post
-chmod u+s %{_bindir}/%{name}
-
-
 %files
 %defattr(-,root,root,-)
 %{_libexecdir}/%{name}
