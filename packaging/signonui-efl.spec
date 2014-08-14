@@ -4,7 +4,7 @@ Name: signonui-efl
 Summary: EFL based Single Sign-On UI
 URL: https://code.google.com/p/accounts-sso/source/checkout?repo=signonui-efl
 Version: 0.0.3
-Release: 1
+Release: 2
 Group: Security/Secure Storage
 License: LGPL-2.1+
 Source: %{name}-%{version}.tar.gz
