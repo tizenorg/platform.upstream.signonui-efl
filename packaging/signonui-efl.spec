@@ -17,6 +17,7 @@ BuildRequires: pkgconfig(glib-2.0) >= 2.30
 BuildRequires: pkgconfig(gio-unix-2.0)
 %if %{_use_browser} == 1
 BuildRequires: pkgconfig(libsoup-2.4)
+BuildRequires: crosswalk
 %else
 BuildRequires: pkgconfig(ewebkit2)
 %endif
@@ -40,7 +41,7 @@ autoreconf -f -i --with-ewebkit2
 %build
 CFLAGS="$CFLAGS -DTIZEN" %configure \
 %if %{_use_browser} == 1
- --enable-browser-cmd=/usr/bin/xwalk
+ --enable-browser-cmd=/usr/bin/xwalk-launcher
 %else
  --with-ewebkit2
 %endif
