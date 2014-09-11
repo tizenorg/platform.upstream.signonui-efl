@@ -1,3 +1,3 @@
 [D-BUS Service]
 Name=com.google.code.AccountsSSO.gSingleSignOn.UI
-Exec=@libexecdir@/signonui-efl
+Exec=/bin/sh -l -c "@libexecdir@/signonui-efl"
