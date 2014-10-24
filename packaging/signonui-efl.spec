@@ -41,7 +41,7 @@ autoreconf -f -i --with-ewebkit2
 %build
 CFLAGS="$CFLAGS -DTIZEN" %configure \
 %if %{_use_browser} == 1
- --enable-browser-cmd=/usr/bin/xwalk-launcher
+ --enable-browser-cmd="/usr/bin/xwalk-launcher -f"
 %else
  --with-ewebkit2
 %endif
