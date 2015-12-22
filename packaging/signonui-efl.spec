@@ -17,7 +17,7 @@ BuildRequires: pkgconfig(glib-2.0) >= 2.30
 BuildRequires: pkgconfig(gio-unix-2.0)
 %if %{_use_browser} == 1
 BuildRequires: pkgconfig(libsoup-2.4)
-BuildRequires: crosswalk
+BuildRequires: crosswalk-tizen
 %else
 BuildRequires: pkgconfig(ewebkit2)
 %endif
